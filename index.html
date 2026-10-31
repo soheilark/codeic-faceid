@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>تأیید هویت</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root { --bg: #ffffff; --text: #1e1f21; --muted: #6d6e6f; --accent: #A754FD; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #17181a; --text: #f5f4f3; --muted: #a2a0a2; } }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; text-align: center;
+         font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+         background: var(--tg-theme-bg-color, var(--bg)); color: var(--tg-theme-text-color, var(--text)); }
+  main { padding: 24px 16px; max-width: 360px; }
+  .icon { font-size: 64px; }
+  h1 { font-size: 20px; margin: 12px 0 8px; }
+  p { color: var(--tg-theme-hint-color, var(--muted)); line-height: 1.7; margin: 0 0 20px; }
+  button { font: inherit; font-size: 17px; padding: 12px 28px; border: 0; border-radius: 12px; cursor: pointer;
+           background: var(--tg-theme-button-color, var(--accent)); color: var(--tg-theme-button-text-color, #fff); }
+</style>
+</head>
+<body>
+<main>
+  <div class="icon" id="icon">🔐</div>
+  <h1 id="title">تأیید هویت</h1>
+  <p id="msg">یه لحظه…</p>
+  <button id="btn" hidden>دوباره امتحان کن</button>
+</main>
+<script>
+// Codeic assistant — biometric check. No secrets live in this page:
+// enroll: a random key is made here and stored in the phone's biometric keychain; the bot keeps its hash.
+// verify: after Face ID / fingerprint the phone releases the key and it goes back to the bot via sendData.
+const tg = window.Telegram.WebApp;
+const q = new URLSearchParams(location.search);
+const mode = q.get("mode");          // "enroll" | "verify"
+const nonce = q.get("n") || "";      // ties the answer to one request in the bot
+const bm = tg.BiometricManager;
+const $ = id => document.getElementById(id);
+
+function show(icon, title, msg, retry) {
+  $("icon").textContent = icon; $("title").textContent = title; $("msg").textContent = msg;
+  $("btn").hidden = !retry;
+}
+function send(data) { tg.sendData(JSON.stringify({ mode, n: nonce, ...data })); }
+
+function randomKey() {
+  const b = new Uint8Array(32); crypto.getRandomValues(b);
+  return Array.from(b, x => x.toString(16).padStart(2, "0")).join("");
+}
+
+function enroll() {
+  bm.requestAccess({ reason: "برای تأیید کارهای حساس دستیار کدیک" }, granted => {
+    if (!granted) return show("🚫", "اجازه داده نشد", "دسترسی بیومتریک رو از تنظیمات تلگرام فعال کن.", true);
+    const key = randomKey();
+    bm.updateBiometricToken(key, ok => {
+      if (!ok) return show("⚠️", "ذخیره نشد", "کلید تو گوشی ذخیره نشد.", true);
+      send({ ok: true, key });
+    });
+  });
+}
+
+function verify() {
+  bm.authenticate({ reason: "تأیید برای دستیار کدیک" }, (ok, key) => {
+    if (!ok || !key) return show("🚫", "تأیید نشد", "دوباره امتحان کن یا رمز رو تایپ کن.", true);
+    send({ ok: true, key });
+  });
+}
+
+function start() {
+  if (!bm) return show("⚠️", "تلگرامت قدیمیه", "تلگرام رو آپدیت کن یا رمز رو تایپ کن.", false);
+  bm.init(() => {
+    if (!bm.isInited || !bm.isBiometricAvailable)
+      return show("📵", "بیومتریک در دسترس نیست", "رو این دستگاه Face ID یا اثرانگشت نیست؛ رمز رو تایپ کن.", false);
+    if (mode === "enroll") { show("🔐", "فعال‌سازی", "Face ID یا اثرانگشتت رو تأیید کن.", false); enroll(); }
+    else if (mode === "verify") {
+      if (!bm.isBiometricTokenSaved) return show("🔐", "هنوز فعال نشده", "اول از منو «🔐 Face ID» رو فعال کن.", false);
+      show("🔓", "تأیید هویت", "Face ID یا اثرانگشتت رو تأیید کن.", false); verify();
+    } else show("⚠️", "لینک نامعتبر", "", false);
+  });
+}
+
+tg.ready(); tg.expand();
+$("btn").onclick = start;
+start();
+</script>
+</body>
+</html>
